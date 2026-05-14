@@ -328,7 +328,8 @@
     <div id="mc">
       <button class="btn bs" onclick="centerMe()">⊕ POS</button>
       <button class="btn bs" onclick="toggleSat()">🛰 SAT</button>
-      <button class="btn bp" onclick="switchTab('camera')">◉ CAPTURE</button>
+      <button class="btn bs" id="fp-toggle-btn" onclick="toggleFootprints()">◧ FP ON</button>
+      <button class="btn bp" onclick="switchTab('camera')">◉ CAP</button>
     </div>
   </div>
 
@@ -374,7 +375,8 @@
       <p style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">ZIP includes geocoded images, GeoJSON footprints, CSV and session README.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn bp" style="font-size:10px" onclick="doZIP()">📦 Export ZIP</button>
-        <button class="btn bs" style="font-size:10px" onclick="doGeoJSON()">GeoJSON</button>
+        <button class="btn bs" style="font-size:10px" onclick="doGeoJSON()">Points GeoJSON</button>
+        <button class="btn bs" style="font-size:10px;border-color:var(--amber);color:var(--amber)" onclick="doFootprintsGJ()">◧ Footprints GeoJSON</button>
         <button class="btn bs" style="font-size:10px" onclick="doCSV()">CSV</button>
         <button class="btn bd" style="font-size:10px;flex:.6" onclick="doClear()">CLEAR</button>
       </div>
@@ -392,7 +394,7 @@ const S = {
   stage:null,
   caps:[],
   facing:'environment',stream:null,
-  map:null,umark:null,fovL:null,capL:null,
+  map:null,umark:null,fovL:null,capL:null,fpL:null,
   sat:false,tile:null,
   proj:{name:'',notes:'',t:''}
 };
@@ -531,6 +533,7 @@ function initMap(){
   S.map=L.map('map',{center:[20,0],zoom:3,zoomControl:true,attributionControl:false});
   S.tile=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20}).addTo(S.map);
   S.capL=L.layerGroup().addTo(S.map);
+  S.fpL=L.layerGroup().addTo(S.map);  // dedicated footprint polygon layer
   S.map.on('move zoom',updFov);
 }
 function updMapPos(){
@@ -583,7 +586,18 @@ function pinOnMap(c){
   const m=L.marker([c.lat,c.lon],{icon:ico});
   m.bindPopup(`<div style="font-family:Space Mono,monospace;font-size:10px"><b>${c.id}</b><br/>${new Date(c.timestamp).toLocaleString()}<br/>AZ:${c.az}° Kc:${c.stage?'Stage '+c.stage:'—'}</div>`);
   S.capL.addLayer(m);
-  if(c.poly) S.capL.addLayer(L.polygon(c.poly.map(p=>[p[1],p[0]]),{color:'#f5c842',weight:1,fillColor:'#f5c842',fillOpacity:.08}));
+  // Footprints go in dedicated layer
+  if(c.poly) S.fpL.addLayer(L.polygon(c.poly.map(p=>[p[1],p[0]]),{color:'#f5c842',weight:1.5,fillColor:'#f5c842',fillOpacity:.12}));
+}
+
+let fpVisible=true;
+function toggleFootprints(){
+  fpVisible=!fpVisible;
+  if(fpVisible) S.map.addLayer(S.fpL);
+  else S.map.removeLayer(S.fpL);
+  document.getElementById('fp-toggle-btn').textContent=fpVisible?'◧ FP ON':'◫ FP OFF';
+  document.getElementById('fp-toggle-btn').style.color=fpVisible?'var(--amber)':'var(--muted)';
+  toast('Footprints '+(fpVisible?'visible':'hidden'));
 }
 
 /* ── LIST ── */
@@ -630,7 +644,8 @@ async function doZIP(){
   const zip=new JSZip(), pn=S.proj.name||'CropView';
   const imgs=zip.folder('images'), data=zip.folder('data');
   S.caps.forEach(c=>{if(c.full){const b=c.full.split(',')[1];imgs.file((c.imgName||c.id)+'.jpg',b,{base64:true});}});
-  data.file(pn+'_captures.geojson',JSON.stringify(buildGJ(),null,2));
+  data.file(pn+'_captures_points.geojson',JSON.stringify(buildGJ(),null,2));
+  data.file(pn+'_captures_footprints.geojson',JSON.stringify(buildFootprintsGJ(),null,2));
   data.file(pn+'_captures.csv',buildCSV());
   zip.file('README.txt',[
     'CropView Export · '+pn,
@@ -641,7 +656,9 @@ async function doZIP(){
     'Captures: '+S.caps.length,
     '',
     'images/  → geocoded JPEGs  {Project}_{ID}_{Timestamp}_{Lat}_{Lon}.jpg',
-    'data/    → GeoJSON (FOV polygons + capture points) + CSV',
+    'data/    → points GeoJSON (capture locations)',
+    '           footprints GeoJSON (FOV ground polygons — use for satellite pixel sampling)',
+    '           CSV of all captures',
     '',
     'Developed by Somdeep Kundu',
     'RuDRA Lab · C-TARA · IIT Bombay',
@@ -671,7 +688,30 @@ function buildCSV(){
   const r=S.caps.map(c=>[c.id,(c.imgName||c.id)+'.jpg',c.timestamp,c.project,c.lat,c.lon,c.altitude||'',c.accuracy||'',c.az,c.tilt,c.fov,c.stage||'',c.fp?.w||'',c.fp?.d||'']);
   return[h,...r].map(x=>x.join(',')).join('\n');
 }
-function doGeoJSON(){if(!S.caps.length){toast('No captures','err');return;}dlBlob(JSON.stringify(buildGJ(),null,2),(S.proj.name||'cv')+'_'+Date.now()+'.geojson','application/geo+json');toast('GeoJSON exported','ok');}
+function buildFootprintsGJ(){
+  const features = S.caps
+    .filter(c=>c.poly&&c.poly.length)
+    .map(c=>({
+      type:'Feature',
+      geometry:{type:'Polygon',coordinates:[c.poly]},
+      properties:{
+        id:c.id, imgName:(c.imgName||c.id)+'.jpg',
+        timestamp:c.timestamp, project:c.project,
+        azimuth_deg:c.az, tilt_deg:c.tilt, hfov_deg:c.fov,
+        kc_stage:c.stage,
+        footprint_width_m:c.fp?.w||null,
+        footprint_depth_m:c.fp?.d||null,
+        capture_lat:c.lat, capture_lon:c.lon,
+      }
+    }));
+  return{type:'FeatureCollection',
+    metadata:{app:'CropView L1',version:'1.1.0-alpha',project:S.proj.name,
+      description:'FOV ground footprint polygons for all captures. Use for satellite pixel sampling in Layer 2.',
+      exported:new Date().toISOString(),total:features.length},
+    features};
+}
+function doGeoJSON(){if(!S.caps.length){toast('No captures','err');return;}dlBlob(JSON.stringify(buildGJ(),null,2),(S.proj.name||'cv')+'_points_'+Date.now()+'.geojson','application/geo+json');toast('Points GeoJSON exported','ok');}
+function doFootprintsGJ(){if(!S.caps.length){toast('No captures','err');return;}dlBlob(JSON.stringify(buildFootprintsGJ(),null,2),(S.proj.name||'cv')+'_footprints_'+Date.now()+'.geojson','application/geo+json');toast('Footprints GeoJSON exported','ok');}
 function doCSV(){if(!S.caps.length){toast('No captures','err');return;}dlBlob(buildCSV(),(S.proj.name||'cv')+'_'+Date.now()+'.csv','text/csv');toast('CSV exported','ok');}
 function dlBlob(c,n,t){const b=new Blob([c],{type:t}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=n;a.click();URL.revokeObjectURL(u);}
 function doClear(){if(!S.caps.length)return;if(!confirm('Clear all '+S.caps.length+' captures?'))return;S.caps=[];saveCaps();S.capL.clearLayers();rendList();document.getElementById('cap-badge').textContent='0 cap';toast('Cleared');}
