@@ -1,0 +1,1114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>CropView — Geo-Camera Field Capture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+
+  <style>
+    :root {
+      --bg:        #0a0f0a;
+      --surface:   #111a11;
+      --surface2:  #1a261a;
+      --border:    #2a3d2a;
+      --green:     #4cff72;
+      --green2:    #1daa3f;
+      --amber:     #f5c842;
+      --red:       #ff4c4c;
+      --text:      #d4e8d4;
+      --muted:     #6b8f6b;
+      --mono:      'Space Mono', monospace;
+      --sans:      'DM Sans', sans-serif;
+      --radius:    12px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      overflow: hidden;
+    }
+
+    /* ── HEADER ── */
+    #header {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px;
+      background: rgba(10,15,10,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    #header .logo {
+      font-family: var(--mono);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--green);
+      letter-spacing: -0.5px;
+    }
+    #header .logo span { color: var(--muted); font-weight: 400; }
+    #status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+      box-shadow: 0 0 0 0 var(--muted);
+      transition: all 0.4s;
+    }
+    #status-dot.active {
+      background: var(--green);
+      box-shadow: 0 0 0 4px rgba(76,255,114,0.2);
+      animation: pulse 2s infinite;
+    }
+    #status-dot.warn { background: var(--amber); box-shadow: 0 0 0 4px rgba(245,200,66,0.2); }
+    @keyframes pulse {
+      0%,100% { box-shadow: 0 0 0 4px rgba(76,255,114,0.2); }
+      50%      { box-shadow: 0 0 0 8px rgba(76,255,114,0.05); }
+    }
+
+    /* ── TABS ── */
+    #tabs {
+      position: fixed; top: 53px; left: 0; right: 0; z-index: 999;
+      display: flex;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .tab {
+      flex: 1; padding: 10px 0; text-align: center;
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.5px;
+      color: var(--muted); cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    .tab.active { color: var(--green); border-bottom-color: var(--green); }
+
+    /* ── MAIN CONTENT ── */
+    #app {
+      position: fixed; top: 93px; left: 0; right: 0; bottom: 0;
+      overflow: hidden;
+    }
+
+    .panel { display: none; height: 100%; flex-direction: column; }
+    .panel.active { display: flex; }
+
+    /* ── CAMERA PANEL ── */
+    #camera-panel { position: relative; }
+
+    #video-container {
+      flex: 1; position: relative; overflow: hidden;
+      background: #000;
+    }
+    #video {
+      width: 100%; height: 100%;
+      object-fit: cover;
+    }
+
+    /* FOV overlay on camera */
+    #fov-overlay {
+      position: absolute; inset: 0; pointer-events: none;
+    }
+    .fov-line {
+      position: absolute;
+      width: 100%; height: 100%;
+      top: 0; left: 0;
+    }
+    /* Crosshair */
+    .crosshair-h, .crosshair-v {
+      position: absolute;
+      background: rgba(76,255,114,0.4);
+    }
+    .crosshair-h { top: 50%; left: 25%; width: 50%; height: 1px; transform: translateY(-50%); }
+    .crosshair-v { left: 50%; top: 25%; height: 50%; width: 1px; transform: translateX(-50%); }
+    .crosshair-center {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      width: 14px; height: 14px;
+      border: 2px solid var(--green);
+      border-radius: 50%;
+    }
+    /* Corner brackets */
+    .corner {
+      position: absolute; width: 20px; height: 20px;
+      border-color: var(--green); border-style: solid; opacity: 0.7;
+    }
+    .corner.tl { top: 12%; left: 8%; border-width: 2px 0 0 2px; }
+    .corner.tr { top: 12%; right: 8%; border-width: 2px 2px 0 0; }
+    .corner.bl { bottom: 12%; left: 8%; border-width: 0 0 2px 2px; }
+    .corner.br { bottom: 12%; right: 8%; border-width: 0 2px 2px 0; }
+
+    /* compass ring */
+    #compass-ring {
+      position: absolute; top: 16px; right: 16px;
+      width: 64px; height: 64px;
+    }
+    #compass-ring svg { width: 100%; height: 100%; }
+    #compass-needle { transform-origin: 32px 32px; transition: transform 0.3s ease; }
+
+    /* HUD strips */
+    #hud-top {
+      position: absolute; top: 12px; left: 12px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .hud-badge {
+      background: rgba(10,15,10,0.75);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-family: var(--mono); font-size: 10px;
+      color: var(--green); letter-spacing: 0.3px;
+    }
+    .hud-badge.warn { color: var(--amber); border-color: var(--amber); }
+    .hud-badge.dim  { color: var(--muted); }
+
+    /* Camera controls */
+    #cam-controls {
+      padding: 12px 16px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex; gap: 10px; align-items: center;
+    }
+    .btn {
+      flex: 1; padding: 12px;
+      font-family: var(--mono); font-size: 11px; font-weight: 700;
+      letter-spacing: 0.5px; text-transform: uppercase;
+      border: none; border-radius: var(--radius); cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-primary {
+      background: var(--green); color: var(--bg);
+    }
+    .btn-primary:active { transform: scale(0.97); background: var(--green2); }
+    .btn-secondary {
+      background: var(--surface2); color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:active { transform: scale(0.97); }
+    .btn-danger {
+      background: rgba(255,76,76,0.15); color: var(--red);
+      border: 1px solid rgba(255,76,76,0.3);
+    }
+
+    /* ── MAP PANEL ── */
+    #map-panel { position: relative; }
+    #map { flex: 1; }
+
+    /* Leaflet dark override */
+    .leaflet-tile { filter: brightness(0.7) saturate(0.8) hue-rotate(60deg); }
+    .leaflet-container { background: var(--bg) !important; }
+
+    #map-controls {
+      padding: 10px 16px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex; gap: 10px;
+    }
+
+    /* ── DATA PANEL ── */
+    #data-panel { overflow-y: auto; padding: 16px; gap: 12px; }
+
+    .data-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+    .data-card h3 {
+      font-family: var(--mono); font-size: 10px;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 1px;
+      margin-bottom: 10px;
+    }
+    .data-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 5px 0;
+      border-bottom: 1px solid rgba(42,61,42,0.5);
+      font-size: 13px;
+    }
+    .data-row:last-child { border-bottom: none; }
+    .data-label { color: var(--muted); font-size: 12px; }
+    .data-value { font-family: var(--mono); font-size: 12px; color: var(--green); }
+    .data-value.na { color: var(--muted); }
+
+    /* Kc Stage indicator */
+    .kc-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 8px; margin-top: 4px;
+    }
+    .kc-stage {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .kc-stage.selected {
+      border-color: var(--green);
+      background: rgba(76,255,114,0.08);
+    }
+    .kc-stage .stage-num {
+      font-family: var(--mono); font-size: 18px;
+      color: var(--green); font-weight: 700;
+    }
+    .kc-stage .stage-label {
+      font-size: 10px; color: var(--muted);
+      margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .kc-stage .kc-val {
+      font-family: var(--mono); font-size: 11px;
+      color: var(--amber); margin-top: 4px;
+    }
+
+    /* Captures list */
+    #captures-list { display: flex; flex-direction: column; gap: 8px; }
+    .capture-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      display: flex; gap: 12px; align-items: flex-start;
+    }
+    .capture-thumb {
+      width: 52px; height: 52px; border-radius: 8px;
+      object-fit: cover; background: var(--surface2);
+      border: 1px solid var(--border); flex-shrink: 0;
+    }
+    .capture-meta { flex: 1; min-width: 0; }
+    .capture-id {
+      font-family: var(--mono); font-size: 11px; color: var(--green);
+    }
+    .capture-details {
+      font-size: 11px; color: var(--muted); margin-top: 3px;
+      line-height: 1.6;
+    }
+    .capture-actions { display: flex; gap: 6px; margin-top: 8px; }
+    .chip {
+      font-family: var(--mono); font-size: 9px;
+      padding: 3px 8px; border-radius: 20px;
+      border: 1px solid var(--border);
+      color: var(--muted); cursor: pointer;
+      transition: all 0.15s;
+    }
+    .chip:active { background: var(--surface2); }
+    .chip.green { border-color: var(--green2); color: var(--green); }
+
+    .empty-state {
+      text-align: center; padding: 40px 20px;
+      color: var(--muted); font-size: 13px; line-height: 1.7;
+    }
+    .empty-state .icon { font-size: 36px; margin-bottom: 12px; }
+
+    /* ── TOAST ── */
+    #toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(80px);
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 24px; padding: 10px 20px;
+      font-family: var(--mono); font-size: 11px; color: var(--text);
+      z-index: 9999; transition: transform 0.3s ease;
+      white-space: nowrap;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+    #toast.success { border-color: var(--green2); color: var(--green); }
+    #toast.error { border-color: var(--red); color: var(--red); }
+
+    /* ── PERMISSION SCREEN ── */
+    #permission-screen {
+      display: none;
+      position: fixed; inset: 0; z-index: 2000;
+      background: var(--bg);
+      flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 32px; text-align: center; gap: 16px;
+    }
+    #permission-screen.active { display: flex; }
+    #permission-screen .big-icon { font-size: 52px; }
+    #permission-screen h2 { font-family: var(--mono); font-size: 18px; color: var(--green); }
+    #permission-screen p { font-size: 13px; color: var(--muted); line-height: 1.7; max-width: 300px; }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* ── SCAN ANIMATION on capture ── */
+    @keyframes scan {
+      0%   { top: 0; opacity: 1; }
+      100% { top: 100%; opacity: 0; }
+    }
+    .scan-line {
+      position: absolute; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--green), transparent);
+      animation: scan 0.6s ease-out forwards;
+      pointer-events: none; z-index: 10;
+    }
+  </style>
+</head>
+<body>
+
+<!-- PERMISSION SCREEN -->
+<div id="permission-screen" class="active">
+  <div class="big-icon">🌿</div>
+  <h2>CropView</h2>
+  <p>Geo-tagged field capture with camera direction & FOV mapping for crop growth stage analysis.</p>
+  <p style="color:var(--amber);font-size:12px;">Requires: Camera · GPS · Compass</p>
+  <button class="btn btn-primary" style="max-width:240px;margin-top:8px;" onclick="initApp()">
+    Grant Permissions & Start
+  </button>
+</div>
+
+<!-- HEADER -->
+<div id="header">
+  <div class="logo">CROP<span>VIEW</span> <span style="font-size:10px;margin-left:4px;">L1·α</span></div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span id="capture-count" style="font-family:var(--mono);font-size:10px;color:var(--muted);">0 captures</span>
+    <div id="status-dot"></div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div id="tabs">
+  <div class="tab active" data-tab="camera" onclick="switchTab('camera')">📷 CAPTURE</div>
+  <div class="tab" data-tab="map" onclick="switchTab('map')">🗺 MAP</div>
+  <div class="tab" data-tab="data" onclick="switchTab('data')">📊 DATA</div>
+</div>
+
+<!-- APP -->
+<div id="app">
+
+  <!-- CAMERA PANEL -->
+  <div id="camera-panel" class="panel active">
+    <div id="video-container">
+      <video id="video" autoplay playsinline muted></video>
+
+      <div id="fov-overlay">
+        <div class="crosshair-h"></div>
+        <div class="crosshair-v"></div>
+        <div class="crosshair-center"></div>
+        <div class="corner tl"></div>
+        <div class="corner tr"></div>
+        <div class="corner bl"></div>
+        <div class="corner br"></div>
+      </div>
+
+      <!-- Compass -->
+      <div id="compass-ring">
+        <svg viewBox="0 0 64 64">
+          <circle cx="32" cy="32" r="30" fill="rgba(10,15,10,0.7)" stroke="#2a3d2a" stroke-width="1.5"/>
+          <text x="32" y="12" text-anchor="middle" font-family="Space Mono" font-size="7" fill="#4cff72">N</text>
+          <text x="32" y="57" text-anchor="middle" font-family="Space Mono" font-size="7" fill="#6b8f6b">S</text>
+          <text x="8"  y="35" text-anchor="middle" font-family="Space Mono" font-size="7" fill="#6b8f6b">W</text>
+          <text x="56" y="35" text-anchor="middle" font-family="Space Mono" font-size="7" fill="#6b8f6b">E</text>
+          <g id="compass-needle">
+            <polygon points="32,14 29,34 32,30 35,34" fill="#4cff72"/>
+            <polygon points="32,50 29,30 32,34 35,30" fill="#3d5c3d"/>
+          </g>
+        </svg>
+      </div>
+
+      <!-- HUD -->
+      <div id="hud-top">
+        <div class="hud-badge dim" id="hud-lat">LAT —</div>
+        <div class="hud-badge dim" id="hud-lon">LON —</div>
+        <div class="hud-badge dim" id="hud-az">AZ —°</div>
+        <div class="hud-badge dim" id="hud-acc">ACC —m</div>
+      </div>
+    </div>
+
+    <div id="cam-controls">
+      <button class="btn btn-secondary" style="flex:0.5;" onclick="toggleCameraFacing()">⟳ FLIP</button>
+      <button class="btn btn-primary" onclick="captureFrame()">◉ CAPTURE</button>
+      <button class="btn btn-secondary" style="flex:0.5;" onclick="switchTab('map')">MAP →</button>
+    </div>
+  </div>
+
+  <!-- MAP PANEL -->
+  <div id="map-panel" class="panel">
+    <div id="map"></div>
+    <div id="map-controls">
+      <button class="btn btn-secondary" onclick="centerOnUser()">⊕ MY POS</button>
+      <button class="btn btn-secondary" onclick="toggleSatellite()">🛰 SATELLITE</button>
+      <button class="btn btn-primary" onclick="switchTab('camera')">◉ CAPTURE</button>
+    </div>
+  </div>
+
+  <!-- DATA PANEL -->
+  <div id="data-panel" class="panel">
+
+    <!-- Live sensor card -->
+    <div class="data-card">
+      <h3>📡 Live Sensor Data</h3>
+      <div class="data-row">
+        <span class="data-label">Latitude</span>
+        <span class="data-value" id="d-lat">—</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Longitude</span>
+        <span class="data-value" id="d-lon">—</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">GPS Accuracy</span>
+        <span class="data-value" id="d-acc">—</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Altitude</span>
+        <span class="data-value" id="d-alt">—</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Azimuth (heading)</span>
+        <span class="data-value" id="d-az">—</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Device Tilt (β)</span>
+        <span class="data-value" id="d-tilt">—</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Est. H-FOV</span>
+        <span class="data-value" id="d-fov">~65°</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Ground Footprint</span>
+        <span class="data-value" id="d-footprint">—</span>
+      </div>
+    </div>
+
+    <!-- Kc Stage selector -->
+    <div class="data-card">
+      <h3>🌱 FAO-56 Crop Stage (Kc)</h3>
+      <div class="kc-grid">
+        <div class="kc-stage" data-stage="1" onclick="selectStage(1)">
+          <div class="stage-num">Kc¹</div>
+          <div class="stage-label">Initial</div>
+          <div class="kc-val">0.3 – 0.4</div>
+        </div>
+        <div class="kc-stage" data-stage="2" onclick="selectStage(2)">
+          <div class="stage-num">Kc²</div>
+          <div class="stage-label">Development</div>
+          <div class="kc-val">0.4 – 0.9</div>
+        </div>
+        <div class="kc-stage" data-stage="3" onclick="selectStage(3)">
+          <div class="stage-num">Kc³</div>
+          <div class="stage-label">Mid-Season</div>
+          <div class="kc-val">0.9 – 1.2</div>
+        </div>
+        <div class="kc-stage" data-stage="4" onclick="selectStage(4)">
+          <div class="stage-num">Kc⁴</div>
+          <div class="stage-label">Late-Season</div>
+          <div class="kc-val">0.6 – 0.9</div>
+        </div>
+      </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;">
+        Select the observed crop growth stage. This Kc value will be embedded in the capture GeoJSON for Layer 2 satellite correlation.
+      </p>
+    </div>
+
+    <!-- Captures -->
+    <div class="data-card">
+      <h3>📁 Captures (<span id="cap-count">0</span>)</h3>
+      <div id="captures-list">
+        <div class="empty-state">
+          <div class="icon">🌾</div>
+          No captures yet.<br/>Go to the Capture tab and point at your crop.
+        </div>
+      </div>
+    </div>
+
+    <!-- Export -->
+    <div class="data-card">
+      <h3>⬇ Export</h3>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" style="font-size:10px;" onclick="exportGeoJSON()">GeoJSON</button>
+        <button class="btn btn-secondary" style="font-size:10px;" onclick="exportCSV()">CSV</button>
+        <button class="btn btn-danger" style="font-size:10px;flex:0.6;" onclick="clearCaptures()">CLEAR</button>
+      </div>
+    </div>
+
+  </div><!-- /data-panel -->
+</div><!-- /app -->
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<canvas id="snap-canvas" style="display:none;"></canvas>
+
+<script>
+// ═══════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════
+const state = {
+  lat: null, lon: null, alt: null, acc: null,
+  azimuth: 0, tilt: 45, fov: 65,
+  selectedStage: null,
+  captures: [],
+  cameraFacing: 'environment',
+  stream: null,
+  map: null,
+  userMarker: null,
+  fovLayer: null,
+  captureLayer: null,
+  satelliteMode: false,
+  tileLayer: null,
+};
+
+// ═══════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════
+async function initApp() {
+  document.getElementById('permission-screen').classList.remove('active');
+
+  await Promise.allSettled([
+    startCamera(),
+    startGPS(),
+    startCompass(),
+  ]);
+
+  initMap();
+  loadCaptures();
+  updateDataPanel();
+}
+
+// ═══════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════
+async function startCamera() {
+  try {
+    if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+    const constraints = {
+      video: {
+        facingMode: state.cameraFacing,
+        width: { ideal: 1920 }, height: { ideal: 1080 }
+      }
+    };
+    state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+    document.getElementById('video').srcObject = state.stream;
+    setStatus('active');
+    toast('Camera ready', 'success');
+  } catch (e) {
+    toast('Camera unavailable: ' + e.message, 'error');
+    setStatus('warn');
+  }
+}
+
+function toggleCameraFacing() {
+  state.cameraFacing = state.cameraFacing === 'environment' ? 'user' : 'environment';
+  startCamera();
+}
+
+// ═══════════════════════════════════════════════
+//  GPS
+// ═══════════════════════════════════════════════
+function startGPS() {
+  if (!navigator.geolocation) { toast('GPS unavailable', 'error'); return; }
+  navigator.geolocation.watchPosition(
+    pos => {
+      state.lat = pos.coords.latitude;
+      state.lon = pos.coords.longitude;
+      state.alt = pos.coords.altitude;
+      state.acc = pos.coords.accuracy;
+      updateHUD();
+      updateDataPanel();
+      updateMapPosition();
+    },
+    err => toast('GPS error: ' + err.message, 'error'),
+    { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+  );
+}
+
+// ═══════════════════════════════════════════════
+//  COMPASS / ORIENTATION
+// ═══════════════════════════════════════════════
+function startCompass() {
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    // iOS 13+
+    DeviceOrientationEvent.requestPermission()
+      .then(r => { if (r === 'granted') window.addEventListener('deviceorientationabsolute', handleOrientation, true); })
+      .catch(() => window.addEventListener('deviceorientation', handleOrientation, true));
+  } else {
+    window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+    window.addEventListener('deviceorientation', handleOrientation, true);
+  }
+}
+
+function handleOrientation(e) {
+  // alpha = compass heading (0=N on absolute), beta = tilt front/back
+  let alpha = e.alpha || 0;
+  if (e.webkitCompassHeading !== undefined) alpha = e.webkitCompassHeading;
+  state.azimuth = Math.round(alpha);
+  state.tilt = Math.round(e.beta || 45);
+
+  // Rotate compass needle
+  const needle = document.getElementById('compass-needle');
+  if (needle) needle.style.transform = `rotate(${-alpha}deg)`;
+
+  updateHUD();
+  updateDataPanel();
+  updateFovLayer();
+}
+
+// ═══════════════════════════════════════════════
+//  HUD UPDATE
+// ═══════════════════════════════════════════════
+function updateHUD() {
+  const fmt = v => v !== null ? v.toFixed(6) : '—';
+  const fmtAcc = v => v !== null ? v.toFixed(1) + 'm' : '—';
+  document.getElementById('hud-lat').textContent  = state.lat  ? 'LAT ' + state.lat.toFixed(5)  : 'LAT —';
+  document.getElementById('hud-lon').textContent  = state.lon  ? 'LON ' + state.lon.toFixed(5)  : 'LON —';
+  document.getElementById('hud-az').textContent   = 'AZ ' + state.azimuth + '°';
+  document.getElementById('hud-acc').textContent  = state.acc  ? 'ACC ' + fmtAcc(state.acc)     : 'ACC —';
+
+  // Remove warn class then re-apply conditionally
+  ['hud-lat','hud-lon','hud-az','hud-acc'].forEach(id => {
+    document.getElementById(id).classList.remove('warn','dim');
+  });
+  if (!state.lat) { document.getElementById('hud-lat').classList.add('dim'); }
+  if (state.acc && state.acc > 20) { document.getElementById('hud-acc').classList.add('warn'); }
+}
+
+// ═══════════════════════════════════════════════
+//  DATA PANEL UPDATE
+// ═══════════════════════════════════════════════
+function updateDataPanel() {
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = val || '—';
+    el.classList.toggle('na', !val || val === '—');
+  };
+
+  set('d-lat',  state.lat  ? state.lat.toFixed(7) + '°' : null);
+  set('d-lon',  state.lon  ? state.lon.toFixed(7) + '°' : null);
+  set('d-acc',  state.acc  ? '± ' + state.acc.toFixed(1) + ' m' : null);
+  set('d-alt',  state.alt  ? state.alt.toFixed(1) + ' m' : null);
+  set('d-az',   state.azimuth + '° ' + azimuthLabel(state.azimuth));
+  set('d-tilt', state.tilt + '°');
+  set('d-fov',  '~' + state.fov + '° (H)');
+
+  const fp = computeFootprint();
+  set('d-footprint', fp ? fp.widthM.toFixed(1) + ' × ' + fp.depthM.toFixed(1) + ' m' : null);
+}
+
+function azimuthLabel(az) {
+  const dirs = ['N','NE','E','SE','S','SW','W','NW','N'];
+  return dirs[Math.round(az / 45) % 8];
+}
+
+// ═══════════════════════════════════════════════
+//  FOOTPRINT GEOMETRY
+// ═══════════════════════════════════════════════
+function computeFootprint() {
+  if (!state.lat || !state.lon) return null;
+  // Estimate ground footprint from tilt, FOV and assumed height
+  const assumedHeightM = state.alt || 1.5; // eye-level fallback
+  const tiltRad = (state.tilt * Math.PI) / 180;
+  const hFovRad = (state.fov  * Math.PI) / 180;
+  const vFovRad = (hFovRad * 9) / 16; // 16:9 ratio approx
+
+  // Ground distance to near/far edge of FOV
+  const groundDist = assumedHeightM * Math.tan(tiltRad);
+  const widthM  = 2 * groundDist * Math.tan(hFovRad / 2);
+  const depthM  = groundDist * Math.tan(vFovRad);
+
+  return { widthM: Math.abs(widthM) || 5, depthM: Math.abs(depthM) || 3, groundDist };
+}
+
+function computeFovPolygon() {
+  if (!state.lat || !state.lon) return null;
+  const fp = computeFootprint();
+  if (!fp) return null;
+
+  const az = state.azimuth;
+  const azRad = (az * Math.PI) / 180;
+  const halfW = fp.widthM / 2;
+  const depth = fp.depthM;
+
+  // Center point projected forward
+  const origin = turf.point([state.lon, state.lat]);
+  const bearing = az;
+
+  // Project 4 corners
+  const fwdCenter = turf.destination(origin, fp.groundDist / 1000, bearing);
+  const [fcLon, fcLat] = fwdCenter.geometry.coordinates;
+
+  const corners = [
+    turf.destination(turf.point([fcLon, fcLat]), halfW / 1000, bearing - 90).geometry.coordinates,
+    turf.destination(turf.point([fcLon, fcLat]), halfW / 1000, bearing + 90).geometry.coordinates,
+  ];
+  // Near edge at user feet
+  const nearLeft  = turf.destination(origin, halfW / 2000, bearing - 90).geometry.coordinates;
+  const nearRight = turf.destination(origin, halfW / 2000, bearing + 90).geometry.coordinates;
+
+  return [nearLeft, corners[0], corners[1], nearRight, nearLeft];
+}
+
+// ═══════════════════════════════════════════════
+//  MAP
+// ═══════════════════════════════════════════════
+function initMap() {
+  state.map = L.map('map', {
+    center: [20, 0], zoom: 3,
+    zoomControl: true,
+    attributionControl: false,
+  });
+
+  state.tileLayer = L.tileLayer(
+    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { maxZoom: 20, className: 'osm-tile' }
+  ).addTo(state.map);
+
+  state.captureLayer = L.layerGroup().addTo(state.map);
+
+  // Attribution small
+  L.control.attribution({ prefix: false, position: 'bottomright' })
+    .addAttribution('© OpenStreetMap')
+    .addTo(state.map);
+
+  // Redraw FOV when map moves
+  state.map.on('move zoom', updateFovLayer);
+}
+
+function updateMapPosition() {
+  if (!state.lat || !state.lon || !state.map) return;
+
+  if (!state.userMarker) {
+    const icon = L.divIcon({
+      html: `<div style="width:14px;height:14px;background:var(--green);border-radius:50%;
+                border:2px solid #fff;box-shadow:0 0 8px rgba(76,255,114,0.6);"></div>`,
+      iconSize: [14,14], iconAnchor: [7,7], className: ''
+    });
+    state.userMarker = L.marker([state.lat, state.lon], { icon }).addTo(state.map);
+    state.map.setView([state.lat, state.lon], 17);
+  } else {
+    state.userMarker.setLatLng([state.lat, state.lon]);
+  }
+
+  updateFovLayer();
+}
+
+function updateFovLayer() {
+  if (!state.map) return;
+  if (state.fovLayer) { state.map.removeLayer(state.fovLayer); state.fovLayer = null; }
+
+  const coords = computeFovPolygon();
+  if (!coords) return;
+
+  state.fovLayer = L.polygon(
+    coords.map(c => [c[1], c[0]]),
+    {
+      color: '#4cff72', weight: 1.5,
+      fillColor: '#4cff72', fillOpacity: 0.12,
+      dashArray: '4 4',
+    }
+  ).addTo(state.map);
+}
+
+function centerOnUser() {
+  if (state.lat && state.lon && state.map) {
+    state.map.setView([state.lat, state.lon], 18);
+  } else {
+    toast('Waiting for GPS…', 'error');
+  }
+}
+
+function toggleSatellite() {
+  state.satelliteMode = !state.satelliteMode;
+  state.map.removeLayer(state.tileLayer);
+  if (state.satelliteMode) {
+    state.tileLayer = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      { maxZoom: 20 }
+    ).addTo(state.map);
+    toast('Satellite view ON', 'success');
+  } else {
+    state.tileLayer = L.tileLayer(
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      { maxZoom: 20 }
+    ).addTo(state.map);
+    toast('OSM view ON', 'success');
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  CAPTURE
+// ═══════════════════════════════════════════════
+function captureFrame() {
+  if (!state.lat || !state.lon) {
+    toast('No GPS fix yet — move outside', 'error'); return;
+  }
+
+  const video  = document.getElementById('video');
+  const canvas = document.getElementById('snap-canvas');
+  canvas.width  = video.videoWidth  || 640;
+  canvas.height = video.videoHeight || 480;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+
+  const thumb = canvas.toDataURL('image/jpeg', 0.4);
+  const full  = canvas.toDataURL('image/jpeg', 0.85);
+
+  // Scan animation
+  const scanEl = document.createElement('div');
+  scanEl.className = 'scan-line';
+  document.getElementById('video-container').appendChild(scanEl);
+  setTimeout(() => scanEl.remove(), 700);
+
+  const fp = computeFootprint();
+  const poly = computeFovPolygon();
+
+  const capture = {
+    id: 'CV-' + Date.now(),
+    timestamp: new Date().toISOString(),
+    lat: state.lat, lon: state.lon,
+    altitude: state.alt,
+    accuracy: state.acc,
+    azimuth: state.azimuth,
+    tilt: state.tilt,
+    fov: state.fov,
+    kcStage: state.selectedStage,
+    footprint: fp ? { widthM: fp.widthM, depthM: fp.depthM } : null,
+    polygon: poly,
+    thumb, full,
+  };
+
+  state.captures.unshift(capture);
+  saveCaptures();
+  renderCaptureOnMap(capture);
+  renderCapturesList();
+
+  document.getElementById('capture-count').textContent = state.captures.length + ' captures';
+  toast('Capture saved ✓', 'success');
+}
+
+function renderCaptureOnMap(cap) {
+  if (!state.map) return;
+
+  const icon = L.divIcon({
+    html: `<div style="width:10px;height:10px;background:var(--amber);border-radius:50%;
+              border:2px solid #fff;box-shadow:0 0 6px rgba(245,200,66,0.7);"></div>`,
+    iconSize: [10,10], iconAnchor: [5,5], className: ''
+  });
+  const marker = L.marker([cap.lat, cap.lon], { icon });
+  marker.bindPopup(`
+    <div style="font-family:Space Mono,monospace;font-size:11px;color:#111;min-width:160px;">
+      <b>${cap.id}</b><br/>
+      ${new Date(cap.timestamp).toLocaleString()}<br/>
+      AZ: ${cap.azimuth}° | Kc: ${cap.kcStage ? 'Stage ' + cap.kcStage : '—'}
+    </div>
+  `);
+  state.captureLayer.addLayer(marker);
+
+  if (cap.polygon) {
+    const poly = L.polygon(
+      cap.polygon.map(c => [c[1], c[0]]),
+      { color: '#f5c842', weight: 1, fillColor: '#f5c842', fillOpacity: 0.08 }
+    );
+    state.captureLayer.addLayer(poly);
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  CAPTURES LIST UI
+// ═══════════════════════════════════════════════
+function renderCapturesList() {
+  const list = document.getElementById('captures-list');
+  document.getElementById('cap-count').textContent = state.captures.length;
+  document.getElementById('capture-count').textContent = state.captures.length + ' captures';
+
+  if (!state.captures.length) {
+    list.innerHTML = `<div class="empty-state"><div class="icon">🌾</div>No captures yet.<br/>Go to the Capture tab and point at your crop.</div>`;
+    return;
+  }
+
+  list.innerHTML = state.captures.map((c, i) => `
+    <div class="capture-item">
+      <img class="capture-thumb" src="${c.thumb}" alt="capture" />
+      <div class="capture-meta">
+        <div class="capture-id">${c.id}</div>
+        <div class="capture-details">
+          ${new Date(c.timestamp).toLocaleString()}<br/>
+          ${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}<br/>
+          AZ: ${c.azimuth}° · Tilt: ${c.tilt}° · Kc: ${c.kcStage ? 'Stage ' + c.kcStage : '—'}<br/>
+          ${c.footprint ? c.footprint.widthM.toFixed(1) + ' × ' + c.footprint.depthM.toFixed(1) + ' m footprint' : ''}
+        </div>
+        <div class="capture-actions">
+          <span class="chip green" onclick="viewOnMap(${i})">MAP</span>
+          <span class="chip" onclick="downloadCapture(${i})">SAVE</span>
+          <span class="chip" onclick="deleteCapture(${i})">DEL</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function viewOnMap(i) {
+  const c = state.captures[i];
+  switchTab('map');
+  setTimeout(() => state.map.setView([c.lat, c.lon], 18), 100);
+}
+
+function deleteCapture(i) {
+  state.captures.splice(i, 1);
+  saveCaptures();
+  renderCapturesList();
+  toast('Capture deleted');
+}
+
+function downloadCapture(i) {
+  const c = state.captures[i];
+  const a = document.createElement('a');
+  a.href = c.full;
+  a.download = c.id + '.jpg';
+  a.click();
+}
+
+// ═══════════════════════════════════════════════
+//  KC STAGE
+// ═══════════════════════════════════════════════
+function selectStage(n) {
+  state.selectedStage = n;
+  document.querySelectorAll('.kc-stage').forEach(el => {
+    el.classList.toggle('selected', parseInt(el.dataset.stage) === n);
+  });
+  toast('Kc Stage ' + n + ' selected', 'success');
+}
+
+// ═══════════════════════════════════════════════
+//  EXPORT
+// ═══════════════════════════════════════════════
+function exportGeoJSON() {
+  if (!state.captures.length) { toast('No captures to export', 'error'); return; }
+
+  const geojson = {
+    type: 'FeatureCollection',
+    metadata: {
+      app: 'CropView Layer 1',
+      version: '1.0.0-alpha',
+      exported: new Date().toISOString(),
+      totalCaptures: state.captures.length,
+    },
+    features: state.captures.map(c => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [c.lon, c.lat, c.altitude || 0] },
+      properties: {
+        id: c.id,
+        timestamp: c.timestamp,
+        azimuth_deg: c.azimuth,
+        tilt_deg: c.tilt,
+        hfov_deg: c.fov,
+        gps_accuracy_m: c.accuracy,
+        kc_stage: c.kcStage,
+        footprint_width_m: c.footprint?.widthM || null,
+        footprint_depth_m: c.footprint?.depthM || null,
+      },
+      ...(c.polygon ? {
+        fov_polygon: {
+          type: 'Polygon',
+          coordinates: [c.polygon]
+        }
+      } : {})
+    }))
+  };
+
+  downloadBlob(
+    JSON.stringify(geojson, null, 2),
+    'cropview_captures_' + Date.now() + '.geojson',
+    'application/geo+json'
+  );
+  toast('GeoJSON exported', 'success');
+}
+
+function exportCSV() {
+  if (!state.captures.length) { toast('No captures to export', 'error'); return; }
+
+  const headers = ['id','timestamp','lat','lon','altitude','accuracy_m','azimuth_deg','tilt_deg','hfov_deg','kc_stage','footprint_w_m','footprint_d_m'];
+  const rows = state.captures.map(c => [
+    c.id, c.timestamp, c.lat, c.lon, c.altitude||'', c.accuracy||'',
+    c.azimuth, c.tilt, c.fov, c.kcStage||'',
+    c.footprint?.widthM||'', c.footprint?.depthM||''
+  ]);
+
+  const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+  downloadBlob(csv, 'cropview_captures_' + Date.now() + '.csv', 'text/csv');
+  toast('CSV exported', 'success');
+}
+
+function downloadBlob(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function clearCaptures() {
+  if (!state.captures.length) { toast('Nothing to clear'); return; }
+  if (!confirm('Clear all ' + state.captures.length + ' captures?')) return;
+  state.captures = [];
+  saveCaptures();
+  state.captureLayer.clearLayers();
+  renderCapturesList();
+  document.getElementById('capture-count').textContent = '0 captures';
+  toast('All captures cleared');
+}
+
+// ═══════════════════════════════════════════════
+//  PERSISTENCE
+// ═══════════════════════════════════════════════
+function saveCaptures() {
+  try {
+    // Save metadata only (no image blobs in localStorage)
+    const meta = state.captures.map(c => ({...c, full: null}));
+    localStorage.setItem('cropview_captures', JSON.stringify(meta));
+  } catch(e) {}
+}
+
+function loadCaptures() {
+  try {
+    const saved = localStorage.getItem('cropview_captures');
+    if (saved) {
+      state.captures = JSON.parse(saved);
+      renderCapturesList();
+      state.captures.forEach(c => {
+        if (c.lat && c.lon) renderCaptureOnMap(c);
+      });
+      document.getElementById('capture-count').textContent = state.captures.length + ' captures';
+    }
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════
+//  UI HELPERS
+// ═══════════════════════════════════════════════
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.panel').forEach(p =>
+    p.classList.toggle('active', p.id === name + '-panel'));
+
+  if (name === 'map' && state.map) {
+    setTimeout(() => state.map.invalidateSize(), 50);
+    if (state.lat) centerOnUser();
+  }
+  if (name === 'data') updateDataPanel();
+}
+
+function setStatus(type) {
+  const dot = document.getElementById('status-dot');
+  dot.className = '';
+  if (type) dot.classList.add(type);
+}
+
+let toastTimer;
+function toast(msg, type='') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = type ? 'show ' + type : 'show';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = '', 2800);
+}
+</script>
+</body>
+</html>
