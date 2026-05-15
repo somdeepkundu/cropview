@@ -310,7 +310,7 @@
   <div id="about-box">
     <div id="about-x" onclick="closeAboutDirect()">✕</div>
     <div class="alogo">CROP<span>VIEW</span></div>
-    <div class="aver">Version 1.2.0-alpha · Layer 1 of 3 · 2026</div>
+    <div class="aver">Version 1.2.1 · Layer 1 of 3 · 2026</div>
 
     <div class="asec">
       <h4>👨‍🔬 Developed By</h4>
@@ -404,18 +404,26 @@
         <div id="tilt-lbl">TILT</div>
       </div>
 
-      <!-- COMPASS -->
+      <!-- COMPASS: fixed heading pointer at top, rotating rose underneath -->
       <div id="compass">
         <svg viewBox="0 0 60 60">
           <circle cx="30" cy="30" r="28" fill="rgba(10,15,10,.7)" stroke="#2a3d2a" stroke-width="1.5"/>
-          <text x="30" y="11" text-anchor="middle" font-family="Space Mono" font-size="7" fill="#4cff72">N</text>
-          <text x="30" y="54" text-anchor="middle" font-family="Space Mono" font-size="7" fill="#6b8f6b">S</text>
-          <text x="6"  y="33" text-anchor="middle" font-family="Space Mono" font-size="7" fill="#6b8f6b">W</text>
-          <text x="54" y="33" text-anchor="middle" font-family="Space Mono" font-size="7" fill="#6b8f6b">E</text>
-          <g id="cneedle">
-            <polygon points="30,13 27,32 30,28 33,32" fill="#4cff72"/>
-            <polygon points="30,47 27,28 30,32 33,28" fill="#3d5c3d"/>
+          <!-- ROTATING ROSE — spins so current heading faces the fixed pointer -->
+          <g id="crose" style="transform-origin:30px 30px;transition:transform .3s">
+            <text x="30" y="11" text-anchor="middle" font-family="Space Mono" font-size="7" fill="#4cff72">N</text>
+            <text x="30" y="54" text-anchor="middle" font-family="Space Mono" font-size="7" fill="#6b8f6b">S</text>
+            <text x="6"  y="33" text-anchor="middle" font-family="Space Mono" font-size="7" fill="#6b8f6b">W</text>
+            <text x="54" y="33" text-anchor="middle" font-family="Space Mono" font-size="7" fill="#4cff72">E</text>
+            <!-- tick marks -->
+            <line x1="30" y1="4" x2="30" y2="8" stroke="#4cff72" stroke-width="1.5"/>
+            <line x1="30" y1="52" x2="30" y2="56" stroke="#6b8f6b" stroke-width="1"/>
+            <line x1="4" y1="30" x2="8" y2="30" stroke="#6b8f6b" stroke-width="1"/>
+            <line x1="52" y1="30" x2="56" y2="30" stroke="#6b8f6b" stroke-width="1"/>
           </g>
+          <!-- FIXED heading pointer — always at top, shows direction you're facing -->
+          <polygon points="30,13 27,24 30,21 33,24" fill="#4cff72" opacity=".95"/>
+          <polygon points="30,47 27,36 30,39 33,36" fill="#3d5c3d" opacity=".7"/>
+          <circle cx="30" cy="30" r="2.5" fill="#4cff72" opacity=".8"/>
         </svg>
       </div>
 
@@ -607,7 +615,7 @@ function onOri(e){
   let a=e.alpha||0;
   if(e.webkitCompassHeading!==undefined) a=e.webkitCompassHeading;
   S.az=Math.round(a); S.tilt=Math.round(e.beta||45);
-  document.getElementById('cneedle').style.transform=`rotate(${a}deg)`;
+  document.getElementById('crose').style.transform=`rotate(${-a}deg)`;
   updTilt(); updHUD(); updData(); updFov();
 }
 
@@ -679,7 +687,7 @@ function azLbl(a){return['N','NE','E','SE','S','SW','W','NW','N'][Math.round(a/4
 function calcFP(){
   if(!S.lat||!S.lon) return null;
   const H=S.alt||1.5, tr=(S.tilt*Math.PI)/180, hr=(S.fov*Math.PI)/180, vr=(hr*9)/16;
-  const gd=H*Math.tan(tr);
+  const gd=Math.abs(H*Math.tan(tr));
   return {w:Math.abs(2*gd*Math.tan(hr/2))||5, d:Math.abs(gd*Math.tan(vr))||3, gd};
 }
 function calcPoly(){
@@ -1027,4 +1035,3 @@ updTilt();
 </script>
 </body>
 </html>
-
