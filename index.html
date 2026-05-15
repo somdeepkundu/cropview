@@ -310,7 +310,7 @@
   <div id="about-box">
     <div id="about-x" onclick="closeAboutDirect()">✕</div>
     <div class="alogo">CROP<span>VIEW</span></div>
-    <div class="aver">Version 1.1.1-alpha · Layer 1 of 3 · 2026</div>
+    <div class="aver">Version 1.1.2-alpha · Layer 1 of 3 · 2026</div>
 
     <div class="asec">
       <h4>👨‍🔬 Developed By</h4>
@@ -558,19 +558,29 @@ function startGPS(){
 /* ── COMPASS ── */
 function startCompass(){
   if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
+    // iOS: use deviceorientation which carries webkitCompassHeading
     DeviceOrientationEvent.requestPermission()
-      .then(r=>{if(r==='granted') window.addEventListener('deviceorientationabsolute',onOri,true);})
+      .then(r=>{if(r==='granted') window.addEventListener('deviceorientation',onOri,true);})
       .catch(()=>window.addEventListener('deviceorientation',onOri,true));
   } else {
-    window.addEventListener('deviceorientationabsolute',onOri,true);
-    window.addEventListener('deviceorientation',onOri,true);
+    // Android: deviceorientationabsolute gives true compass bearing; deviceorientation.alpha is arbitrary
+    // Only fall back to non-absolute if absolute never fires
+    let gotAbsolute = false;
+    window.addEventListener('deviceorientationabsolute', e=>{
+      gotAbsolute = true;
+      onOri(e);
+    }, true);
+    window.addEventListener('deviceorientation', e=>{
+      if(!gotAbsolute) onOri(e);
+    }, true);
   }
 }
 function onOri(e){
   let a=e.alpha||0;
   if(e.webkitCompassHeading!==undefined) a=e.webkitCompassHeading;
   S.az=Math.round(a); S.tilt=Math.round(e.beta||45);
-  document.getElementById('cneedle').style.transform=`rotate(${a}deg)`;
+  // Use SVG native rotate(angle,cx,cy) — avoids CSS transform-origin inconsistencies on SVG elements
+  document.getElementById('cneedle').setAttribute('transform',`rotate(${a},30,30)`);
   updTilt(); updHUD(); updData(); updFov();
 }
 
