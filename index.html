@@ -310,7 +310,7 @@
   <div id="about-box">
     <div id="about-x" onclick="closeAboutDirect()">✕</div>
     <div class="alogo">CROP<span>VIEW</span></div>
-    <div class="aver">Version 1.1.0-alpha · Layer 1 of 3 · 2026</div>
+    <div class="aver">Version 1.1.1-alpha · Layer 1 of 3 · 2026</div>
 
     <div class="asec">
       <h4>👨‍🔬 Developed By</h4>
@@ -361,7 +361,7 @@
   </div>
 </div>
 
-<!-- HEADER -->
+  <!-- HEADER -->
 <div id="header">
   <div class="logo">CROP<span>VIEW</span><span class="proj" id="hproj">—</span></div>
   <div id="hdr-right">
@@ -570,7 +570,7 @@ function onOri(e){
   let a=e.alpha||0;
   if(e.webkitCompassHeading!==undefined) a=e.webkitCompassHeading;
   S.az=Math.round(a); S.tilt=Math.round(e.beta||45);
-  document.getElementById('cneedle').style.transform=`rotate(${-a}deg)`;
+  document.getElementById('cneedle').style.transform=`rotate(${a}deg)`;
   updTilt(); updHUD(); updData(); updFov();
 }
 
