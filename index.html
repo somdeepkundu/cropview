@@ -310,7 +310,7 @@
   <div id="about-box">
     <div id="about-x" onclick="closeAboutDirect()">✕</div>
     <div class="alogo">CROP<span>VIEW</span></div>
-    <div class="aver">Version 1.1.2-alpha · Layer 1 of 3 · 2026</div>
+    <div class="aver">Version 1.2.0-alpha · Layer 1 of 3 · 2026</div>
 
     <div class="asec">
       <h4>👨‍🔬 Developed By</h4>
@@ -460,6 +460,7 @@
       <div class="dr"><span class="dl">Latitude</span><span class="dv" id="d-lat">—</span></div>
       <div class="dr"><span class="dl">Longitude</span><span class="dv" id="d-lon">—</span></div>
       <div class="dr"><span class="dl">GPS Accuracy</span><span class="dv" id="d-acc">—</span></div>
+      <div class="dr"><span class="dl">Smoothed Samples</span><span class="dv" id="d-smp">—</span></div>
       <div class="dr"><span class="dl">Altitude</span><span class="dv" id="d-alt">—</span></div>
       <div class="dr"><span class="dl">Azimuth</span><span class="dv" id="d-az">—</span></div>
       <div class="dr"><span class="dl">Device Tilt β</span><span class="dv" id="d-tilt">—</span></div>
@@ -503,6 +504,7 @@
 <script>
 const S = {
   lat:null,lon:null,alt:null,acc:null,altAcc:null,lastGPSTime:null,
+  gpsSamples:0,
   az:0,tilt:45,fov:65,
   stage:null,
   caps:[],
@@ -543,16 +545,42 @@ async function startCamera(){
 function toggleCam(){S.facing=S.facing==='environment'?'user':'environment';startCamera();}
 
 /* ── GPS ── */
+const GPS_BUF = [];           // rolling buffer of raw readings
+const GPS_BUF_MAX = 6;        // keep last 6 readings
+const GPS_LOCK_THR = 12;      // metres — threshold to consider GPS "locked"
+
+function gpsSmooth(){
+  if(!GPS_BUF.length) return null;
+  // sort best→worst accuracy, drop the worst reading once we have 3+
+  const sorted = [...GPS_BUF].sort((a,b)=>a.acc-b.acc);
+  const use = sorted.length >= 3 ? sorted.slice(0,-1) : sorted;
+  // inverse-variance weighted average (weight = 1 / acc²)
+  let tw=0, wlat=0, wlon=0, walt=0, hasAlt=false;
+  use.forEach(r=>{
+    const w=1/(r.acc*r.acc);
+    tw+=w; wlat+=r.lat*w; wlon+=r.lon*w;
+    if(r.alt!==null){walt+=r.alt*w; hasAlt=true;}
+  });
+  return{lat:wlat/tw, lon:wlon/tw, alt:hasAlt?walt/tw:null,
+         acc:use[0].acc, altAcc:use[0].altAcc, samples:use.length};
+}
+
 function startGPS(){
   if(!navigator.geolocation) return;
   navigator.geolocation.watchPosition(p=>{
-    S.lat=p.coords.latitude; S.lon=p.coords.longitude;
-    S.alt=p.coords.altitude; S.acc=p.coords.accuracy;
-    S.altAcc=p.coords.altitudeAccuracy;
+    GPS_BUF.push({lat:p.coords.latitude,lon:p.coords.longitude,
+      alt:p.coords.altitude,acc:p.coords.accuracy,
+      altAcc:p.coords.altitudeAccuracy});
+    if(GPS_BUF.length>GPS_BUF_MAX) GPS_BUF.shift();
+    const g=gpsSmooth();
+    if(g){
+      S.lat=g.lat; S.lon=g.lon; S.alt=g.alt;
+      S.acc=g.acc; S.altAcc=g.altAcc; S.gpsSamples=g.samples;
+    }
     S.lastGPSTime=Date.now();
     recordGPSHistory(p.coords.accuracy);
     updHUD(); updData(); updMapPos();
-  },e=>toast('GPS: '+e.message,'err'),{enableHighAccuracy:true,maximumAge:2000,timeout:10000});
+  },e=>toast('GPS: '+e.message,'err'),{enableHighAccuracy:true,maximumAge:0,timeout:15000});
 }
 
 /* ── COMPASS ── */
@@ -579,8 +607,7 @@ function onOri(e){
   let a=e.alpha||0;
   if(e.webkitCompassHeading!==undefined) a=e.webkitCompassHeading;
   S.az=Math.round(a); S.tilt=Math.round(e.beta||45);
-  // Use SVG native rotate(angle,cx,cy) — avoids CSS transform-origin inconsistencies on SVG elements
-  document.getElementById('cneedle').setAttribute('transform',`rotate(${a},30,30)`);
+  document.getElementById('cneedle').style.transform=`rotate(${a}deg)`;
   updTilt(); updHUD(); updData(); updFov();
 }
 
@@ -613,10 +640,16 @@ function updHUD(){
   document.getElementById('h-lat').textContent=S.lat?'LAT '+S.lat.toFixed(5):'LAT —';
   document.getElementById('h-lon').textContent=S.lon?'LON '+S.lon.toFixed(5):'LON —';
   document.getElementById('h-az').textContent='AZ '+S.az+'°';
-  document.getElementById('h-acc').textContent=S.acc?'ACC ±'+S.acc.toFixed(1)+'m':'ACC —';
+  // Show smoothed accuracy + sample count
+  const locked = S.acc && S.acc <= GPS_LOCK_THR;
+  const smpTxt = S.gpsSamples > 1 ? ` ×${S.gpsSamples}` : '';
+  document.getElementById('h-acc').textContent = S.acc
+    ? (locked ? '⊕ ' : '') + 'ACC ±'+S.acc.toFixed(1)+'m'+smpTxt
+    : 'ACQUIRING…';
   ['h-lat','h-lon','h-az','h-acc'].forEach(id=>document.getElementById(id).classList.remove('warn','dim'));
-  if(!S.lat) document.getElementById('h-lat').classList.add('dim');
-  if(S.acc&&S.acc>20) document.getElementById('h-acc').classList.add('warn');
+  if(!S.lat) { document.getElementById('h-lat').classList.add('dim'); document.getElementById('h-lon').classList.add('dim'); }
+  if(!S.acc) document.getElementById('h-acc').classList.add('warn');
+  else if(S.acc>20) document.getElementById('h-acc').classList.add('warn');
   // GPS button colour
   const gb = document.getElementById('gps-btn');
   if(!S.acc)        { gb.style.color='var(--muted)'; gb.style.borderColor='var(--border)'; }
@@ -633,7 +666,8 @@ function updData(){
   set('d-start',S.proj.t?new Date(S.proj.t).toLocaleString():null);
   set('d-lat',S.lat?S.lat.toFixed(7)+'°':null);
   set('d-lon',S.lon?S.lon.toFixed(7)+'°':null);
-  set('d-acc',S.acc?'± '+S.acc.toFixed(1)+' m':null);
+  set('d-acc',S.acc?'± '+S.acc.toFixed(1)+' m'+(S.acc<=GPS_LOCK_THR?' ⊕ LOCKED':''):null);
+  set('d-smp',S.gpsSamples>0?S.gpsSamples+' / '+GPS_BUF_MAX+' (drop-worst averaging)':null);
   set('d-alt',S.alt?S.alt.toFixed(1)+' m':null);
   set('d-az',S.az+'° '+azLbl(S.az));
   set('d-tilt',S.tilt+'°');
@@ -693,6 +727,8 @@ function toggleSat(){
 /* ── CAPTURE ── */
 function doCapture(){
   if(!S.lat||!S.lon){toast('No GPS fix yet','err');return;}
+  if(S.acc>30){toast('GPS too weak (±'+S.acc.toFixed(0)+'m) — move to open sky','err');return;}
+  if(S.acc>GPS_LOCK_THR) toast('Weak GPS ±'+S.acc.toFixed(0)+'m — accuracy may be low','');
   const vid=document.getElementById('video'), cv=document.getElementById('snap');
   cv.width=vid.videoWidth||640; cv.height=vid.videoHeight||480;
   cv.getContext('2d').drawImage(vid,0,0);
