@@ -155,6 +155,37 @@
     .atag.h{border-color:var(--green2);color:var(--green)}
     .discbox{background:rgba(245,200,66,.06);border:1px solid rgba(245,200,66,.2);border-radius:8px;padding:10px 12px;font-size:11px;color:var(--amber);line-height:1.6;margin-top:8px}
 
+    /* GPS STATUS MODAL */
+    #gps-ov{display:none;position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:20px}
+    #gps-ov.on{display:flex}
+    #gps-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:380px;max-height:84vh;overflow-y:auto;padding:22px 20px;position:relative}
+    #gps-x{position:absolute;top:14px;right:14px;width:28px;height:28px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}
+    #gps-x:hover{color:var(--text);border-color:var(--green2)}
+    #acc-ring-wrap{display:flex;flex-direction:column;align-items:center;padding:14px 0 6px}
+    #acc-ring-svg{width:130px;height:130px}
+    .ring-track{fill:none;stroke:var(--surface2);stroke-width:10}
+    .ring-fill{fill:none;stroke-width:10;stroke-linecap:round;transition:stroke-dashoffset .6s,stroke .4s}
+    #fix-badge{margin-top:10px;font-family:var(--mono);font-size:12px;font-weight:700;padding:5px 16px;border-radius:20px;letter-spacing:.5px;border:2px solid var(--muted);color:var(--muted)}
+    #fix-badge.good{border-color:var(--green);color:var(--green);background:rgba(76,255,114,.08)}
+    #fix-badge.ok{border-color:var(--amber);color:var(--amber);background:rgba(245,200,66,.08)}
+    #fix-badge.poor{border-color:var(--red);color:var(--red);background:rgba(255,76,76,.08)}
+    .sat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0}
+    .sat-bar{display:flex;flex-direction:column;align-items:center;gap:3px}
+    .sat-bar-inner{width:100%;height:36px;background:var(--surface2);border-radius:4px;position:relative;overflow:hidden;border:1px solid var(--border)}
+    .sat-bar-fill{position:absolute;bottom:0;left:0;right:0;border-radius:3px;transition:height .5s}
+    .sat-bar-lbl{font-family:var(--mono);font-size:8px;color:var(--muted);text-align:center}
+    .acc-history{display:flex;gap:4px;align-items:flex-end;height:36px;margin-top:4px}
+    .acc-bar{flex:1;border-radius:2px;background:var(--green2);transition:height .3s,background .3s}
+    .gsec{margin-bottom:14px}
+    .gsec h4{font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--border)}
+    .grow{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(42,61,42,.4);font-size:12px}
+    .grow:last-child{border-bottom:none}
+    .gl{color:var(--muted);font-size:11px}
+    .gv{font-family:var(--mono);font-size:11px;color:var(--green)}
+    .gv.warn{color:var(--amber)}
+    .gv.na{color:var(--muted)}
+    .gnote{font-size:11px;color:var(--muted);line-height:1.65;padding:8px 10px;background:var(--surface2);border-radius:8px;border-left:3px solid var(--border);margin-top:6px}
+
     /* TOAST */
     #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--surface2);border:1px solid var(--border);border-radius:24px;padding:9px 18px;font-family:var(--mono);font-size:11px;color:var(--text);z-index:9999;transition:transform .3s;white-space:nowrap}
     #toast.show{transform:translateX(-50%) translateY(0)}
@@ -190,6 +221,87 @@
     <input id="pnotes" class="tinput" type="text" placeholder="e.g. Somdeep · Pre-harvest check" maxlength="80" autocomplete="off" />
     <div class="fhint">📁 Images will be named:<br/><span style="color:var(--green);font-family:var(--mono);font-size:10px">ProjectName_ID_YYYYMMDDHHMMSS_lat_lon.jpg</span></div>
     <button class="btn bp" style="width:100%;margin-top:4px" onclick="startProject()">Start Session →</button>
+  </div>
+</div>
+
+<!-- GPS STATUS MODAL -->
+<div id="gps-ov" onclick="closeGPS(event)">
+  <div id="gps-box">
+    <div id="gps-x" onclick="closeGPSDirect()">✕</div>
+    <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--green);margin-bottom:2px">📡 GPS STATUS</div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:14px">Live · updates every 2s</div>
+
+    <!-- Accuracy ring -->
+    <div id="acc-ring-wrap">
+      <svg id="acc-ring-svg" viewBox="0 0 130 130">
+        <circle class="ring-track" cx="65" cy="65" r="52"/>
+        <circle id="ring-fill" class="ring-fill" cx="65" cy="65" r="52"
+          stroke-dasharray="327" stroke-dashoffset="327"
+          stroke="#4cff72" transform="rotate(-90 65 65)"/>
+        <text id="ring-acc-val" x="65" y="60" text-anchor="middle"
+          font-family="Space Mono,monospace" font-size="22" font-weight="700" fill="#d4e8d4">—</text>
+        <text x="65" y="78" text-anchor="middle"
+          font-family="Space Mono,monospace" font-size="11" fill="#6b8f6b">metres</text>
+        <text x="65" y="94" text-anchor="middle"
+          font-family="Space Mono,monospace" font-size="9" fill="#6b8f6b">accuracy radius</text>
+      </svg>
+      <div id="fix-badge">NO FIX</div>
+    </div>
+
+    <!-- Simulated constellation bars -->
+    <div class="gsec" style="margin-top:12px">
+      <h4>🛰 Estimated Constellation Activity</h4>
+      <div class="sat-grid">
+        <div class="sat-bar">
+          <div class="sat-bar-inner"><div class="sat-bar-fill" id="bar-gps" style="background:#4cff72;height:0%"></div></div>
+          <div class="sat-bar-lbl">GPS</div>
+        </div>
+        <div class="sat-bar">
+          <div class="sat-bar-inner"><div class="sat-bar-fill" id="bar-glo" style="background:#f5c842;height:0%"></div></div>
+          <div class="sat-bar-lbl">GLONASS</div>
+        </div>
+        <div class="sat-bar">
+          <div class="sat-bar-inner"><div class="sat-bar-fill" id="bar-gal" style="background:#4ac8ff;height:0%"></div></div>
+          <div class="sat-bar-lbl">GALILEO</div>
+        </div>
+        <div class="sat-bar">
+          <div class="sat-bar-inner"><div class="sat-bar-fill" id="bar-bei" style="background:#ff8c42;height:0%"></div></div>
+          <div class="sat-bar-lbl">BeiDou</div>
+        </div>
+      </div>
+      <div class="gnote">⚠ Browsers cannot read actual satellite counts. These bars are estimated from your GPS accuracy — better accuracy = more satellites likely contributing. For real GNSS data, a native app is needed.</div>
+    </div>
+
+    <!-- Fix metrics -->
+    <div class="gsec">
+      <h4>📊 Fix Metrics</h4>
+      <div class="grow"><span class="gl">Accuracy (H)</span><span class="gv" id="g-acc">—</span></div>
+      <div class="grow"><span class="gl">Altitude Accuracy (V)</span><span class="gv" id="g-altacc">—</span></div>
+      <div class="grow"><span class="gl">Est. HDOP</span><span class="gv" id="g-hdop">—</span></div>
+      <div class="grow"><span class="gl">Fix Quality</span><span class="gv" id="g-quality">—</span></div>
+      <div class="grow"><span class="gl">Est. Satellites</span><span class="gv" id="g-sats">—</span></div>
+      <div class="grow"><span class="gl">Altitude</span><span class="gv" id="g-alt">—</span></div>
+      <div class="grow"><span class="gl">Last Updated</span><span class="gv" id="g-time">—</span></div>
+    </div>
+
+    <!-- Accuracy history -->
+    <div class="gsec">
+      <h4>📈 Accuracy History (last 10)</h4>
+      <div class="acc-history" id="acc-history"></div>
+      <div style="display:flex;justify-content:space-between;margin-top:4px">
+        <span style="font-family:var(--mono);font-size:9px;color:var(--muted)">older</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--muted)">now</span>
+      </div>
+    </div>
+
+    <!-- Device GNSS note -->
+    <div class="gsec">
+      <h4>📱 Your Device</h4>
+      <div class="grow"><span class="gl">Platform</span><span class="gv" id="g-platform">—</span></div>
+      <div class="grow"><span class="gl">Likely GNSS</span><span class="gv" id="g-gnss">—</span></div>
+      <div class="grow"><span class="gl">Multi-band</span><span class="gv" id="g-multiband">—</span></div>
+    </div>
+
   </div>
 </div>
 
@@ -254,6 +366,7 @@
   <div class="logo">CROP<span>VIEW</span><span class="proj" id="hproj">—</span></div>
   <div id="hdr-right">
     <span id="cap-badge">0 cap</span>
+    <div id="gps-btn" onclick="openGPS()" style="font-family:var(--mono);font-size:10px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 10px;cursor:pointer;transition:all .2s">📡 GPS</div>
     <div id="about-btn" onclick="openAbout()">ⓘ ABOUT</div>
     <div id="status-dot"></div>
   </div>
@@ -389,7 +502,7 @@
 
 <script>
 const S = {
-  lat:null,lon:null,alt:null,acc:null,
+  lat:null,lon:null,alt:null,acc:null,altAcc:null,lastGPSTime:null,
   az:0,tilt:45,fov:65,
   stage:null,
   caps:[],
@@ -435,6 +548,9 @@ function startGPS(){
   navigator.geolocation.watchPosition(p=>{
     S.lat=p.coords.latitude; S.lon=p.coords.longitude;
     S.alt=p.coords.altitude; S.acc=p.coords.accuracy;
+    S.altAcc=p.coords.altitudeAccuracy;
+    S.lastGPSTime=Date.now();
+    recordGPSHistory(p.coords.accuracy);
     updHUD(); updData(); updMapPos();
   },e=>toast('GPS: '+e.message,'err'),{enableHighAccuracy:true,maximumAge:2000,timeout:10000});
 }
@@ -491,6 +607,12 @@ function updHUD(){
   ['h-lat','h-lon','h-az','h-acc'].forEach(id=>document.getElementById(id).classList.remove('warn','dim'));
   if(!S.lat) document.getElementById('h-lat').classList.add('dim');
   if(S.acc&&S.acc>20) document.getElementById('h-acc').classList.add('warn');
+  // GPS button colour
+  const gb = document.getElementById('gps-btn');
+  if(!S.acc)        { gb.style.color='var(--muted)'; gb.style.borderColor='var(--border)'; }
+  else if(S.acc<12) { gb.style.color='var(--green)'; gb.style.borderColor='var(--green2)'; }
+  else if(S.acc<25) { gb.style.color='var(--amber)'; gb.style.borderColor='var(--amber)'; }
+  else              { gb.style.color='var(--red)';   gb.style.borderColor='var(--red)'; }
 }
 
 /* ── DATA PANEL ── */
@@ -726,6 +848,117 @@ function loadCaps(){
     const s=localStorage.getItem('cv_caps');
     if(s){S.caps=JSON.parse(s).filter(c=>c.project===S.proj.name);rendList();S.caps.forEach(c=>{if(c.lat&&c.lon)pinOnMap(c);});document.getElementById('cap-badge').textContent=S.caps.length+' cap';}
   }catch(e){}
+}
+
+/* ── GPS STATUS MODAL ── */
+const gpsHistory = [];
+
+function openGPS(){
+  document.getElementById('gps-ov').classList.add('on');
+  updGPSModal();
+}
+function closeGPSDirect(){ document.getElementById('gps-ov').classList.remove('on'); }
+function closeGPS(e){ if(e.target===document.getElementById('gps-ov')) closeGPSDirect(); }
+
+// Called every GPS update — stores history
+function recordGPSHistory(acc){
+  gpsHistory.push(acc);
+  if(gpsHistory.length > 10) gpsHistory.shift();
+  if(document.getElementById('gps-ov').classList.contains('on')) updGPSModal();
+}
+
+function updGPSModal(){
+  const acc   = S.acc;
+  const alt   = S.alt;
+  const altAcc= S.altAcc || null;
+
+  // ── Ring ──
+  const ringMax = 100; // metres — clamp scale
+  const ringCirc = 327; // 2πr where r=52
+  const pct = acc ? Math.max(0, 1 - Math.min(acc, ringMax) / ringMax) : 0;
+  const offset = ringCirc - pct * ringCirc;
+  const ringEl = document.getElementById('ring-fill');
+  ringEl.style.strokeDashoffset = offset;
+  ringEl.style.stroke = acc < 5 ? '#4cff72' : acc < 15 ? '#f5c842' : '#ff4c4c';
+  document.getElementById('ring-acc-val').textContent = acc ? acc.toFixed(1) : '—';
+
+  // ── Fix badge ──
+  const badge = document.getElementById('fix-badge');
+  if(!acc){ badge.textContent='NO FIX'; badge.className=''; }
+  else if(acc < 5) { badge.textContent='EXCELLENT FIX'; badge.className='good'; }
+  else if(acc < 12){ badge.textContent='GOOD FIX';      badge.className='good'; }
+  else if(acc < 25){ badge.textContent='FAIR FIX';       badge.className='ok'; }
+  else             { badge.textContent='POOR FIX';       badge.className='poor'; }
+
+  // ── Estimated HDOP (accuracy / ~5 is a rough HDOP proxy) ──
+  const hdop = acc ? (acc / 5).toFixed(1) : null;
+
+  // ── Estimated satellites from accuracy ──
+  let estSats = '—', quality = '—';
+  if(acc){
+    if     (acc < 3)  { estSats = '12 – 15'; quality = 'Excellent (RTK-like)'; }
+    else if(acc < 6)  { estSats = '8 – 12';  quality = 'Excellent'; }
+    else if(acc < 12) { estSats = '6 – 9';   quality = 'Good'; }
+    else if(acc < 25) { estSats = '4 – 6';   quality = 'Fair'; }
+    else if(acc < 50) { estSats = '3 – 4';   quality = 'Poor'; }
+    else              { estSats = '< 3';      quality = 'Very Poor'; }
+  }
+
+  // ── Constellation bars (estimated from accuracy) ──
+  if(acc){
+    const q = Math.max(0, Math.min(1, 1 - (acc - 2) / 48));
+    document.getElementById('bar-gps').style.height = Math.round(55 + q*40) + '%';
+    document.getElementById('bar-glo').style.height = Math.round(40 + q*45) + '%';
+    document.getElementById('bar-gal').style.height = Math.round(20 + q*60) + '%';
+    document.getElementById('bar-bei').style.height = Math.round(15 + q*50) + '%';
+  } else {
+    ['bar-gps','bar-glo','bar-gal','bar-bei'].forEach(id => document.getElementById(id).style.height='5%');
+  }
+
+  // ── Metrics ──
+  const setGV = (id, val, warn) => {
+    const el = document.getElementById(id); if(!el) return;
+    el.textContent = val || '—';
+    el.className = 'gv' + (warn ? ' warn' : '') + (!val ? ' na' : '');
+  };
+  setGV('g-acc',     acc  ? '± ' + acc.toFixed(1) + ' m'         : null, acc > 20);
+  setGV('g-altacc',  altAcc ? '± ' + altAcc.toFixed(1) + ' m'    : 'not available');
+  setGV('g-hdop',    hdop ? '~' + hdop                            : null, hdop > 3);
+  setGV('g-quality', quality, acc > 20);
+  setGV('g-sats',    estSats);
+  setGV('g-alt',     alt  ? alt.toFixed(1) + ' m (WGS84)'        : null);
+  setGV('g-time',    S.lastGPSTime ? new Date(S.lastGPSTime).toLocaleTimeString() : null);
+
+  // ── History bars ──
+  const hist = document.getElementById('acc-history');
+  if(gpsHistory.length){
+    const maxH = Math.max(...gpsHistory, 1);
+    hist.innerHTML = gpsHistory.map(v => {
+      const h = Math.max(4, (v / maxH) * 34);
+      const col = v < 10 ? '#4cff72' : v < 25 ? '#f5c842' : '#ff4c4c';
+      return `<div class="acc-bar" style="height:${h}px;background:${col};flex:1;border-radius:2px"></div>`;
+    }).join('');
+  }
+
+  // ── Device info ──
+  const ua = navigator.userAgent;
+  let platform = 'Unknown', gnss = 'GPS', multiband = 'Unknown';
+  if(/iPhone|iPad/.test(ua)){
+    platform = 'iOS (Apple)';
+    gnss = 'GPS + GLONASS + Galileo + BeiDou';
+    multiband = /iPhone1[4-9]|iPhone2/.test(ua) ? 'Yes (L1 + L5)' : 'L1 only';
+  } else if(/Android/.test(ua)){
+    platform = 'Android';
+    gnss = 'GPS + GLONASS + Galileo + BeiDou';
+    multiband = 'Likely L1 (L5 on flagships)';
+  } else {
+    platform = 'Desktop / Unknown';
+    gnss = 'Varies (WiFi/cell fallback likely)';
+    multiband = 'N/A';
+  }
+  setGV('g-platform',  platform);
+  setGV('g-gnss',      gnss);
+  setGV('g-multiband', multiband);
 }
 
 /* ── ABOUT ── */
