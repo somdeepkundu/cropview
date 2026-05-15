@@ -570,7 +570,7 @@ function onOri(e){
   let a=e.alpha||0;
   if(e.webkitCompassHeading!==undefined) a=e.webkitCompassHeading;
   S.az=Math.round(a); S.tilt=Math.round(e.beta||45);
-  document.getElementById('cneedle').style.transform=`rotate(${a + 180}deg)`;
+  document.getElementById('cneedle').style.transform=`rotate(${a}deg)`;
   updTilt(); updHUD(); updData(); updFov();
 }
 
