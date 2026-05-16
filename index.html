@@ -693,7 +693,7 @@ function calcFP(){
 function calcPoly(){
   if(!S.lat||!S.lon) return null;
   const fp=calcFP(); if(!fp) return null;
-  const O=turf.point([S.lon,S.lat]), b=S.az, hw=fp.w/2;
+  const O=turf.point([S.lon,S.lat]), b=(S.az+180)%360, hw=fp.w/2;
   const fc=turf.destination(O,fp.gd/1000,b), [fcx,fcy]=fc.geometry.coordinates;
   const fL=turf.destination(turf.point([fcx,fcy]),hw/1000,b-90).geometry.coordinates;
   const fR=turf.destination(turf.point([fcx,fcy]),hw/1000,b+90).geometry.coordinates;
